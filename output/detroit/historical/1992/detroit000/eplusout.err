@@ -1,4 +1,4 @@
-Program Version,EnergyPlus, Version 23.2.0-7636e6b3e9, YMD=2024.02.18 15:24,
+Program Version,EnergyPlus, Version 23.2.0-7636e6b3e9, YMD=2024.02.18 15:37,
    ** Warning ** GetSurfaceData: Entered Zone Floor Area(s) differ more than 5% from the sum of the Space Floor Area(s).
    **   ~~~   ** ...use Output:Diagnostics,DisplayExtraWarnings; to show more details on individual zones.
    ************* Note that the following warning(s) may/will occur if you have not enclosed your zone completely.
@@ -125,4 +125,4 @@ Program Version,EnergyPlus, Version 23.2.0-7636e6b3e9, YMD=2024.02.18 15:24,
    *************
    ************* EnergyPlus Warmup Error Summary. During Warmup: 0 Warning; 0 Severe Errors.
    ************* EnergyPlus Sizing Error Summary. During Sizing: 0 Warning; 0 Severe Errors.
-   ************* EnergyPlus Completed Successfully-- 712598 Warning; 1 Severe Errors; Elapsed Time=00hr 00min 15.34sec
+   ************* EnergyPlus Completed Successfully-- 712598 Warning; 1 Severe Errors; Elapsed Time=00hr 00min 14.91sec
