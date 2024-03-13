@@ -9,11 +9,6 @@ import glob
 from pathlib import Path
 import time
 
-# Source EP
-ep_install_path = "/usr/local/EnergyPlus-23-2-0/"
-sys.path.append(ep_install_path)
-from pyenergyplus.api import EnergyPlusAPI
-
 # Parse input arguments 
 parser = argparse.ArgumentParser(description="Required eprun_s Arguments")
 
@@ -21,6 +16,7 @@ parser.add_argument('--city', '-c', help='city name (baltimore|boston|dallas|det
 parser.add_argument('--year', '-y', help='4-digit year', type=str, required=True)
 parser.add_argument('--climate', '-w', help='climate scenario (historical|rcp45|rcp85)', type=str, required=True)
 parser.add_argument('--directory', '-d', help='location of base directory where weather/ buildings/ and output/ are', type=str, required=True)
+parser.add_argument('--ep_install_path', '-epp', help='location of the EnergyPlus install folder that has pyenergyplus', type=str, required=True)
 
 args = parser.parse_args()
 
@@ -28,6 +24,11 @@ city = args.city
 year = args.year
 climate = args.climate
 tl_dir = args.directory
+ep_install_path = args.ep_install_path 
+
+# Source EP
+sys.path.append(ep_install_path)
+from pyenergyplus.api import EnergyPlusAPI      # import once the pyenergyplus path is added 
 
 cwd = os.getcwd()
 
