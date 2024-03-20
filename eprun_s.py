@@ -8,58 +8,184 @@ import os
 import glob
 from pathlib import Path
 import time
+import xml.etree.ElementTree as ET
+import shutil
+import tqdm 
+import multiprocessing
+import math 
+from contextlib import redirect_stdout, redirect_stderr
 
-# Parse input arguments 
-parser = argparse.ArgumentParser(description="Required eprun_s Arguments")
+class Job:
+    def __init__(self, ID, bldg_id, bldg_dir, idf, city, scenario, ep_install_path):
+        # require initialization with the folder of the files for the building
+        self.id = ID
+        self.idf_path = idf
+        self.bldg_id = bldg_id
+        self.bldg_dir = bldg_dir
+        self.ep_install_path = ep_install_path
 
-parser.add_argument('--city', '-c', help='city name (baltimore|boston|dallas|detroit|minneapolis|orlando|phoenix|seattle)', type=str, required=True)
-parser.add_argument('--year', '-y', help='4-digit year', type=str, required=True)
-parser.add_argument('--climate', '-w', help='climate scenario (historical|rcp45|rcp85)', type=str, required=True)
-parser.add_argument('--directory', '-d', help='location of base directory where weather/ buildings/ and output/ are', type=str, required=True)
-parser.add_argument('--ep_install_path', '-epp', help='location of the EnergyPlus install folder that has pyenergyplus', type=str, required=True)
+        self.city = city    
+        self.weather_scenario = scenario
 
-args = parser.parse_args()
+        self.filebasename = None
+        self.epw_path = None
+        self.xml_path = None
+        self.output_path = None
 
-city = args.city
-year = args.year
-climate = args.climate
-tl_dir = args.directory
-ep_install_path = args.ep_install_path 
+def get_attrib_text(root, attrib):
+    """Get the attribute's text from the xml file"""
+    for element in root.iter():
+        if attrib in element.tag:
+            return element.text
 
-# Source EP
-sys.path.append(ep_install_path)
-from pyenergyplus.api import EnergyPlusAPI      # import once the pyenergyplus path is added 
 
-cwd = os.getcwd()
+def find_epws_from_xml(jobs):
+    print("Searching for EPW files given in building XML files...")
+    # find the xml file to determine which weather (epw) file was used to generate the IDF file and thus which weather to simulate
+    ET.register_namespace("", "http://hpxmlonline.com/2019/10")
+    ET.register_namespace("xsi", 'http://www.w3.org/2001/XMLSchema-instance')
+    ET.register_namespace("", 'http://hpxmlonline.com/2019/10')   
 
-# Query input idf
-idf_dir = tl_dir + '/buildings/' + city + '/idf/'
-idf_files = glob.glob(idf_dir + '*.idf')
-idf_ids = [Path(ifile).stem for ifile in idf_files]  
+    for job in jobs:
+        xml_path = job.idf_path.split(".idf")[0] + ".xml"
+        if os.path.exists(xml_path):
+            job.xml_path = xml_path
+            tree = ET.parse(job.xml_path)
+            root = tree.getroot()
+            job.epw_path = get_attrib_text(root=root, 
+                            attrib='EPWFilePath') 
+            
+            if not os.path.exists(job.epw_path): raise IOError(f"EPW file for bldg not found: {job.epw_path}")
 
-# Query input epw
-epw_search_path = tl_dir + '/weather/' + city + '/' + climate + '/'
-epw_path = glob.glob(epw_search_path + year + '*')[0]
-if not epw_path:
-    print('Error: epw file not found')
+        else: raise IOError(f"XML file for building could not be found: {xml_path}")
+    
+    return jobs
 
-# Prepare api
-api = EnergyPlusAPI()
-print("EnergyPlus Version: " + str(api.functional.ep_version()))
 
-# Iterative approach (could be parallelized for increased performance)
-start_time = time.time()
-for idf_id in idf_ids:
-    # Set output and idf path
-    output_path = tl_dir + '/output/' + city + '/' + climate + '/' + year + '/' + city + idf_id # run in arschall/<top level dir> so I run arschall/EPpy/ ... ls here has weather building output
-    idf_path = idf_dir + idf_id + '.idf'
+def generate_simulation_jobs(**kwargs):
+    city = kwargs.get('city')
+    climate = kwargs.get('climate')
 
-    # Begin execution
+    # Query input idf
+    idf_dir = os.path.join(kwargs.get('buildings_folder'), climate, city)
+    if not os.path.exists(idf_dir): raise IOError(f"IDF directory not found: {idf_dir}")
+    # idf_files = glob.glob(idf_dir + '/*.idf')
+    # idf_ids = [Path(ifile).stem for ifile in idf_files]  
+
+    jobs = []       # create list of jobs for parrellel processing 
+    id = 0
+    for bldg_dir in glob.glob(f"{idf_dir}/*"):
+        # Construct the path to all *.idf files within the bldg_dir
+        files = glob.glob(f"{bldg_dir}/*.idf")
+
+        for idf in files:
+            bldg_dir = os.path.basename(bldg_dir)
+            bldg_id = os.path.basename(idf).split(".idf")[0]    # get the folder name of the building as the bldg id
+            jobs.append(Job(id, bldg_id, bldg_dir, idf, city, climate, kwargs.get('ep_install_path')))
+            id += 1
+
+    if len(jobs) == 0:
+        raise OSError('No jobs to run. Skipping simulation.')
+    else: 
+        # the current upstream workflow generates an IDF file for each weather file to be simulated 
+        # so we check for the existence of those weather EPW files to run in simulation
+        jobs = find_epws_from_xml(jobs)     
+            
+        run_jobs = []
+        # Set output and idf path
+        for i, job in enumerate(jobs):
+            
+            job.output_path = os.path.join(kwargs.get('output_folder'), climate, city, job.bldg_dir, job.bldg_id) 
+
+            if not os.path.exists(job.output_path):
+                print(f'Creating output directory {job.output_path}')
+                os.makedirs(job.output_path)  
+                run_jobs.append(job)
+            
+            elif os.path.exists(job.output_path) and kwargs.get('overwrite_output'):
+                print(f'\tWarning: Output files being overwritten: {job.output_path}')
+                shutil.rmtree(job.output_path)  
+                os.makedirs(job.output_path)  
+                run_jobs.append(job)
+
+            elif os.path.exists(job.output_path) and not kwargs.get('overwrite_output'):
+                print(f'\tWarning: Output files exist in output folder and overwrite is false. Skipping job: {job.weather_scenario}/{job.city}/{job.bldg_id}')
+        
+        if len(jobs) == 0:
+            raise OSError('All output files exist and overwite is false. No jobs to simulate.')
+    
+    print(f"Found {len(run_jobs)} buildings to simulate.")
+    return run_jobs 
+
+
+def run_job(job):
+    # Prepare api
+    # Source EP
+    sys.path.append(job.ep_install_path)
+    from pyenergyplus.api import EnergyPlusAPI      # import once the pyenergyplus path is added 
+    api = EnergyPlusAPI()
     state = api.state_manager.new_state()
-    v = api.runtime.run_energyplus(state, ['-d', output_path, '-w', epw_path, idf_path])
+
+
+    with open(os.devnull, 'w') as devnull:
+        with redirect_stdout(devnull), redirect_stderr(devnull):  # Redirect both stdout and stderr
+            v = api.runtime.run_energyplus(state, ['-d', job.output_path, '-w', job.epw_path, job.idf_path])
+            # sys.stdout.write("This message will not be printed.")
+
     if v != 0:
         print("EnergyPlus Simulation Failed")
         sys.exit(1)
 
-print('\n')
-print('-----EnergyPlus Simulation Summary-----\n\tSimulated ' + str(len(idf_ids)) + ' buildings\n\tExecution time: ' + str(time.time() - start_time) + ' s\n\tOutputs in ' + tl_dir + '/output/' + city + '/' + climate + '/' + year + '/')
+    # # Begin execution
+    # v = api.runtime.run_energyplus(state, ['-d', job.output_path, '-w', job.epw_path, job.idf_path])
+    # if v != 0:
+    #     print("EnergyPlus Simulation Failed")
+    #     sys.exit(1)
+
+def run_energyplus_simulations(**kwargs):
+    output_folder = kwargs.get('output_folder')
+    if not os.path.exists(output_folder):
+        os.mkdir(output_folder)
+
+    # Generate list of simulation jobs to run 
+    jobs = generate_simulation_jobs(**kwargs)
+
+    # Iterative approach (could be parallelized for increased performance)
+    start_time = time.time()
+
+    # # Setup the job pool
+    # # at least one CPU core, up to max_cpu_load * num_cpu_cores, no more cores than jobs
+    # num_cpus = max(min( math.floor( kwargs.get('max_cpu_load') * multiprocessing.cpu_count()), len(jobs)), 1)    
+    # pool = multiprocessing.Pool(processes=num_cpus)
+    # no_jobs = len(jobs)
+    
+    # # Execute the job pool and track progress with tqdm progress bar
+    # print(f'Generating {len(jobs)} .idf files using {num_cpus} CPU cores')
+    # for _ in tqdm.tqdm(pool.imap_unordered(run_job, jobs), total=no_jobs, desc="Running E+ Simulations", smoothing=0.01):
+    #     pass
+
+    for job in jobs: 
+        run_job(job)
+
+    print('\n')
+    print('-----EnergyPlus Simulation Summary-----\n\tSimulated ' + str(len(jobs)) + ' buildings\n\tExecution time: ' + str(time.time() - start_time) + ' s')
+
+
+if __name__ == "__main__":
+    # Parse input arguments if called from command line 
+    parser = argparse.ArgumentParser(description="Required eprun_s Arguments")
+
+    parser.add_argument('--city', '-c', help='city name (baltimore|boston|dallas|detroit|minneapolis|orlando|phoenix|seattle)', type=str, required=True)
+    parser.add_argument('--climate', '-w', help='climate scenario (historical|rcp45|rcp85)', type=str, required=True)
+    parser.add_argument('--ep_install_path', '-epp', help='location of the EnergyPlus install folder that has pyenergyplus', type=str, required=True)
+    parser.add_argument('--buildings_folder', '-bldgs_fldr', help='location of the buildings folder', type=str, required=True)
+    parser.add_argument('--weather_folder', '-wthr_fldr', help="Location of the weather scenarios", type=str, required=True)
+    parser.add_argument('--output_folder', '-o_fldr', help="Output folder", type=str, required=True)
+    parser.add_argument('--overwrite_output', '-overwrite', action='store_true', default=False, help="Overwrite existing output")
+    parser.add_argument('--verbose', '-v', action='store_true', default=False, help="Verbose output")
+
+
+    args = parser.parse_args()
+
+    run_energyplus_simulations(**vars(args))
+
