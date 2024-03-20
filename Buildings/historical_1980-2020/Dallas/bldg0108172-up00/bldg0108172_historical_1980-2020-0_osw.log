@@ -1,0 +1,3 @@
+[22:57:48.335387 WARN] No valid weather file defined in either the osm or osw.
+[22:57:48.848536 WARN] The model contains existing objects and is being reset.
+[22:57:49.749555 WARN] /Users/camilotoruno/Documents/local_research_data/Buildings/Dallas/bldg0108172-up00/bldg0108172_historical_1980-2020-0.xml: Ducts are entirely within conditioned space but there is moderate leakage to the outside. Leakage to the outside is typically zero or near-zero in these situations, consider revising leakage values. Leakage will be modeled as heat lost to the ambient environment. [context: /HPXML/Building/BuildingDetails/Systems/HVAC/HVACDistribution/DistributionSystemType/AirDistribution, id: "HVACDistribution1"]

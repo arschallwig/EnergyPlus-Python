@@ -12,11 +12,10 @@ if __name__ == '__main__':
     run_args = {
         'city': None, 
         'climate': None,
-        'directory': '/Users/camilotoruno/Documents/GitHub/EnergyPlus-Python',
         'ep_install_path': '/Applications/OpenStudio-3.4.0/EnergyPlus',
-        'buildings_folder': '/Users/camilotoruno/Documents/local_research_data/Buildings',
-        'weather_folder': '/Volumes/seas-mtcraig/EPWFromTGW/TGWEPWs',
-        'output_folder': '/Users/camilotoruno/Documents/local_research_data/simulations ',
+        'buildings_folder': '/Users/camilotoruno/Documents/GitHub/EnergyPlus-Python/Buildings',
+        'weather_folder': '/Users/camilotoruno/Documents/GitHub/EnergyPlus-Python/TGWEPWs',
+        'output_folder': '/Users/camilotoruno/Documents/GitHub/EnergyPlus-Python/simulations',
         'overwrite_output': True, 
         'verbose': True,
         "max_cpu_load": 0.99      # must be in the range [0, 1]. The value 1 indidcates all CPU cores, 0 indicates 1 CPU core
