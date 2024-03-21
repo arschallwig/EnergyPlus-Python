@@ -14,6 +14,7 @@ import tqdm
 import multiprocessing
 import math 
 from contextlib import redirect_stdout, redirect_stderr
+from itertools import islice
 
 class Job:
     def __init__(self, ID, bldg_id, bldg_dir, idf, city, scenario, ep_install_path, verbose):
@@ -118,25 +119,30 @@ def generate_simulation_jobs(**kwargs):
         if len(jobs) == 0:
             raise OSError('All output files exist and overwite is false. No jobs to simulate.')
     
+    no_jobs = len(run_jobs)
     print(f"Found {len(run_jobs)} buildings to simulate.")
-    return run_jobs 
+    batches = [list(islice(run_jobs, i, i + kwargs.get('batch_size'))) for i in range(0, len(run_jobs), kwargs.get('batch_size'))]
+    return batches, no_jobs 
 
 
-def run_job(job):
+def run_batch(batch):
     # Source EP
     # Prepare api
     # Execute simulation 
-
-    sys.path.append(job.ep_install_path)
+    first_job = batch[0]
+    sys.path.append(first_job.ep_install_path)
     from pyenergyplus.api import EnergyPlusAPI      # import once the pyenergyplus path is added 
     api = EnergyPlusAPI()
-    state = api.state_manager.new_state()
-    if not job.verbose: api.runtime.set_console_output_status(state, False)
-    v = api.runtime.run_energyplus(state, ['-d', job.output_path, '-w', job.epw_path, job.idf_path])
-    if v != 0:
-        print("EnergyPlus Simulation Failed")
-        sys.exit(1)
-    # state.delete_state()
+
+    for job in batch:
+        state = api.state_manager.new_state()
+        if not job.verbose: api.runtime.set_console_output_status(state, False)
+        v = api.runtime.run_energyplus(state, ['-d', job.output_path, '-w', job.epw_path, job.idf_path])
+        if v != 0:
+            print("EnergyPlus Simulation Failed")
+            sys.exit(1)
+        # state.delete_state()
+    return len(batch)
 
 def run_energyplus_simulations(**kwargs):
     output_folder = kwargs.get('output_folder')
@@ -144,29 +150,38 @@ def run_energyplus_simulations(**kwargs):
         if kwargs.get('verbose'): print(f'Creating output folder {kwargs.get('output_folder')}')
         os.mkdir(output_folder)
 
-    if kwargs.get('overwrite'): 
+    if kwargs.get('overwrite_output'): 
         print('Caution: Overwrite is True. If existing output files are found they will be overwritten. If overwrite chosen in error, cancel job.')
         time.sleep(10)
 
     else: print('Caution: Overwrite is False: If existing output files are found, those jobs will be skipped.')
 
     # Generate list of simulation jobs to run 
-    jobs = generate_simulation_jobs(**kwargs)
+    batches, no_jobs = generate_simulation_jobs(**kwargs)
 
     # Iterative approach (could be parallelized for increased performance)
     start_time = time.time()
 
     # Setup the job pool
     # at least one CPU core, up to max_cpu_load * num_cpu_cores, no more cores than jobs
-    num_cpus = max(min( math.floor( kwargs.get('max_cpu_load') * multiprocessing.cpu_count()), len(jobs)), 1)    
+    num_cpus = max(min( math.floor( kwargs.get('max_cpu_load') * multiprocessing.cpu_count()), no_jobs), 1)    
     pool = multiprocessing.Pool(processes=num_cpus)
-    no_jobs = len(jobs)
+    # no_jobs = len(jobs)
     
-    # Execute the job pool and track progress with tqdm progress bar
-    print(f'Generating {len(jobs)} .idf files using {num_cpus} CPU cores')
-    for _ in tqdm.tqdm(pool.imap_unordered(run_job, jobs), total=no_jobs, desc="Running E+ Simulations", smoothing=0.01):
-        pass
+    # # Execute the job pool and track progress with tqdm progress bar
+    # print(f'Generating {len(jobs)} .idf files using {num_cpus} CPU cores')
+    # for _ in tqdm.tqdm(pool.imap_unordered(run_job, jobs), total=no_jobs, desc="Running E+ Simulations", smoothing=0.01):
+    #     pass
 
+    print(f'{len(batches)} batches to run')
+    # for batch in batches:
+    #     print("Len(batch):", len(batch))
+
+    # Iterate over batches using pool.imap_unordered
+    with multiprocessing.Pool(processes=num_cpus) as pool:
+        with tqdm.tqdm(total=no_jobs, desc="Running E+ Simulations", smoothing=0.01) as pbar:
+            for batch_size in pool.imap_unordered(run_batch, batches):
+                pbar.update(batch_size)  # Update progress bar by the number of jobs in the batch
     # for job in jobs: 
     #     run_job(job)
 
