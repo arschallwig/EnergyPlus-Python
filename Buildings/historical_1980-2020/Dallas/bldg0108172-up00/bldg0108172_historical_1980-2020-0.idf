@@ -5372,20 +5372,14 @@ Output:VariableDictionary,
     IDF,                      !- Key Field
     Unsorted;                 !- Sort Option
 
-Output:Table:SummaryReports,
-    AllSummary;               !- Report 1 Name
-
-OutputControl:Table:Style,
-    HTML;                     !- Column Separator
-
 OutputControl:Files,
     No,                       !- Output CSV
-    No,                       !- Output MTR
-    No,                       !- Output ESO
+    Yes,                       !- Output MTR
+    Yes,                       !- Output ESO
     No,                       !- Output EIO
-    Yes,                      !- Output Tabular
-    Yes,                      !- Output SQLite
-    Yes,                      !- Output JSON
+    No,                      !- Output Tabular
+    No,                      !- Output SQLite
+    No,                      !- Output JSON
     No,                       !- Output AUDIT
     Yes,                      !- Output Zone Sizing
     Yes,                      !- Output System Sizing
@@ -5411,11 +5405,57 @@ OutputControl:Files,
     Yes,                      !- Output ExtShd
     Yes;                      !- Output Tarcog
 
-Output:JSON,
-    TimeSeriesAndTabular,     !- Option Type
-    No,                       !- Output JSON
-    No,                       !- Output CBOR
-    Yes;                      !- Output MessagePack
 
-Output:SQLite,
-    SimpleAndTabular;         !- Option Type
+
+Output:Meter:MeterFileOnly,
+    NaturalGas:Facility,
+    Daily;
+
+Output:Meter:MeterFileOnly,
+    Electricity:Facility,
+    Timestep;
+
+Output:Meter:MeterFileOnly,
+    Electricity:Facility,
+    Daily;
+
+Output:Meter,
+    Electricity:Facility,
+    Timestep;
+
+Output:Meter,
+    NaturalGas:Facility,
+    Timestep;
+
+Output:Meter,
+    DistrictCooling:Facility,
+    Timestep;
+
+Output:Meter,
+    DistrictHeatingWater:Facility,
+    Timestep;
+
+Output:Variable,
+    *,
+    Zone Air Temperature,
+    Hourly;
+
+Output:Variable,
+    *,
+    Site Outdoor Air Wetbulb Temperature,
+    Timestep;
+
+Output:Variable,
+    *,
+    Zone Air Relative Humidity,
+    Daily;
+
+Output:Variable,
+    *,
+    Zone Air Relative Humidity,
+    Hourly;
+
+Output:Variable,
+    *,
+    Site Outdoor Air Drybulb Temperature,
+    Monthly;
