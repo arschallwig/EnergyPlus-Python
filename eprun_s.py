@@ -41,12 +41,12 @@ def find_xml_epw(idf_path):
     # find the xml file to determine which weather (epw) file was used to generate the IDF file and thus which weather to simulate
     xml_path = idf_path.split(".idf")[0] + ".xml"
 
-    if not os.path.exists(xml_path): raise IOError(f"XML file for building could not be found: {xml_path}")
+    if not os.path.exists(xml_path): raise RuntimeError(f"XML file for building could not be found: {xml_path}")
     else:
         tree = ET.parse(xml_path)
         root = tree.getroot()
         epw_path = get_attrib_text(root=root, attrib='EPWFilePath') 
-        if not os.path.exists(epw_path): raise IOError(f"EPW file for bldg not found: {epw_path}")
+        if not os.path.exists(epw_path): raise RuntimeError(f"EPW file for bldg not found: {epw_path}")
 
     return xml_path, epw_path
 
@@ -63,25 +63,27 @@ def generate_simulation_jobs(**kwargs):
 
     # Query input idf
     idf_dir = os.path.join(kwargs.get('buildings_folder'), climate, city)
-    if not os.path.exists(idf_dir): raise IOError(f"IDF directory not found: {idf_dir}")
+    if not os.path.exists(idf_dir): raise RuntimeError(f"IDF directory not found: {idf_dir}")
 
     jobs = []       # create list of jobs for parrellel processing 
     id = 0
     directories = glob.glob(f"{idf_dir}/*")
     for bldg_dir in tqdm.tqdm(directories, total=len(directories), desc="Finding IDF, XML, & EPW files", smoothing=0.01):   # for loop inside progoress bar
-        # Construct the path to all *.idf files within the bldg_dir
-        files = glob.glob(f"{bldg_dir}/*.idf")
 
-        for idf in files:
-            bldg_dir = os.path.basename(bldg_dir)
-            bldg_id = os.path.basename(idf).split(".idf")[0]    # get the folder name of the building as the bldg id
+        for bldg_folder in glob.glob(f"{bldg_dir}/*"):
+            # Construct the path to all *.idf files within the bldg_dir
+            files = glob.glob(f"{bldg_folder}/*.idf")
 
-            # the current upstream workflow generates an IDF file for each weather file to be simulated 
-            # so we check for the existence of those weather EPW files to run in simulation. Job initialization automatically finds this EPW. 
-            jobs.append(Job(id, bldg_id, bldg_dir, idf, city, climate, kwargs.get('ep_install_path'), kwargs.get('verbose')))
-            id += 1
+            for idf in files:
+                bldg_folder = os.path.basename(bldg_folder)
+                bldg_id = os.path.basename(idf).split(".idf")[0]    # get the folder name of the building as the bldg id
 
-    if len(jobs) == 0: raise OSError('No jobs to run. Skipping simulation.')
+                # the current upstream workflow generates an IDF file for each weather file to be simulated 
+                # so we check for the existence of those weather EPW files to run in simulation. Job initialization automatically finds this EPW. 
+                jobs.append(Job(id, bldg_id, bldg_folder, idf, city, climate, kwargs.get('ep_install_path'), kwargs.get('verbose')))
+                id += 1
+
+    if len(jobs) == 0: raise RuntimeError('No jobs to run. Skipping simulation.')
     
     else: 
         # Set output and idf path
@@ -90,21 +92,22 @@ def generate_simulation_jobs(**kwargs):
         for job in tqdm.tqdm(jobs, total=len(jobs), desc="Checking output folders", smoothing=0.01):            # for loop inside progoress bar
             job.output_path = os.path.join(kwargs.get('output_folder'), climate, city, job.bldg_dir, job.bldg_id) 
 
+            overwrite = kwargs.get('overwrite_output')
             if not os.path.exists(job.output_path):
                 if kwargs.get('verbose'): print(f'Creating output directory {job.output_path}')
                 os.makedirs(job.output_path)  
                 run_jobs.append(job)
             
-            elif os.path.exists(job.output_path) and kwargs.get('overwrite_output'):
+            elif os.path.exists(job.output_path) and overwrite:
                 if kwargs.get('verbose'): print(f'\tWarning: Output files being overwritten: {job.output_path}')
                 shutil.rmtree(job.output_path)  
                 os.makedirs(job.output_path)  
                 run_jobs.append(job)
 
-            elif os.path.exists(job.output_path) and not kwargs.get('overwrite_output'):
+            elif os.path.exists(job.output_path) and not overwrite:
                 if kwargs.get('verbose'): print(f'\tWarning: Output files exist in output folder and overwrite is false. Skipping job: {job.weather_scenario}/{job.city}/{job.bldg_id}')
         
-        if len(jobs) == 0: raise OSError('All output files exist and overwite is false. No jobs to simulate.')
+        if len(jobs) == 0: raise RuntimeError('All output files exist and overwite is false. No jobs to simulate.')
     
     print(f"Found {len(run_jobs)} buildings to simulate.")
     return run_jobs 
@@ -126,6 +129,8 @@ def run_job(job):
         print("EnergyPlus Simulation Failed")
         sys.exit(1)
 
+    api.state_manager.delete_state(state)           # required to free up memory 
+
 
 def run_energyplus_simulations(**kwargs):
     """ Main function """
@@ -140,7 +145,7 @@ def run_energyplus_simulations(**kwargs):
         if kwargs.get('verbose'): print(f'Creating output folder {kwargs.get('output_folder')}')
         os.mkdir(output_folder)
 
-    if kwargs.get('overwrite'): 
+    if kwargs.get('overwrite_output'): 
         print('Caution: Overwrite is True. If existing output files are found they will be overwritten. If overwrite chosen in error, cancel job.')
         time.sleep(10)
 
@@ -159,7 +164,7 @@ def run_energyplus_simulations(**kwargs):
     no_jobs = len(jobs)
 
     # Execute the job pool and track progress with tqdm progress bar
-    print(f'Generating {no_jobs} .idf files using {num_cpus} CPU cores')
+    print(f'Simulating {no_jobs} .idf files using {num_cpus} CPU cores')
     for _ in tqdm.tqdm(pool.imap_unordered(run_job, jobs), total=no_jobs, desc="Running E+ Simulations", smoothing=0.01):
         pass
 
