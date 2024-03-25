@@ -86,7 +86,6 @@ def generate_simulation_jobs(**kwargs):
     if len(jobs) == 0: raise RuntimeError('No jobs to run. Skipping simulation.')
     
     else: 
-        # Set output and idf path
         # Check whether output exists and whether to overwrite 
         run_jobs = []
         for job in tqdm.tqdm(jobs, total=len(jobs), desc="Checking output folders", smoothing=0.01):            # for loop inside progoress bar
@@ -132,7 +131,7 @@ def run_job(job):
     api.state_manager.delete_state(state)           # required to free up memory 
 
 
-def run_energyplus_simulations(**kwargs):
+def run_energyplus_simulations(idf_simulation_options, **kwargs):
     """ Main function """
 
     # Register XML namespaces for XML file reading / modifying (may not be necessary?)
@@ -154,6 +153,16 @@ def run_energyplus_simulations(**kwargs):
     # Generate list of simulation jobs to run 
     jobs = generate_simulation_jobs(**kwargs)
 
+    # if the user specified energy plus outputs, ensure they're set within the IDF file
+    if len(idf_simulation_options) > 0:
+        bldg_to_idf_repository = kwargs.get('ResStockToEnergyPlus_repository')
+        if os.path.exists(bldg_to_idf_repository): sys.path.append(bldg_to_idf_repository)            # Source custom script
+        else: raise RuntimeError(f'Cannot find ResStockToEnergyPlus repository for setting IDF simulation outputs {bldg_to_idf_repository}')
+
+        import reset_idf_schedules_path      # import once the path is added 
+        for job in jobs: job.idf = job.idf_path  # make compatible with upstream workflow function 
+        reset_idf_schedules_path.set_EnergyPlus_Simulation_Output(jobs, idf_simulation_options, **kwargs)
+
     # Iterative approach (could be parallelized for increased performance)
     start_time = time.time()
 
@@ -171,7 +180,11 @@ def run_energyplus_simulations(**kwargs):
     # for job in jobs: 
     #     run_job(job)
 
-    print('\n-----EnergyPlus Simulation Summary-----\n\tSimulated ' + str(len(jobs)) + ' buildings\n\tExecution time: ' + str(time.time() - start_time) + ' s')
+    elapsed_time = time.time() - start_time
+    hours = int(elapsed_time // 3600)
+    minutes = int((elapsed_time % 3600) // 60)
+    seconds = int(elapsed_time % 60)
+    print('\n-----EnergyPlus Simulation Summary-----\n\tSimulated ' + str(len(jobs)) + ' buildings \n' + f'\tExecution time: {hours:02d}hr:{minutes:02d}min:{seconds:02d}sec')
 
 
 if __name__ == "__main__":
