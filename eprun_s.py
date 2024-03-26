@@ -59,6 +59,7 @@ for idf_id in idf_ids:
     if v != 0:
         print("EnergyPlus Simulation Failed")
         sys.exit(1)
+    api.state_manager.delete_state(state)
 
 print('\n')
 print('-----EnergyPlus Simulation Summary-----\n\tSimulated ' + str(len(idf_ids)) + ' buildings\n\tExecution time: ' + str(time.time() - start_time) + ' s\n\tOutputs in ' + tl_dir + '/output/' + city + '/' + climate + '/' + year + '/')
